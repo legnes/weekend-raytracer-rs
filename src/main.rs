@@ -3,20 +3,32 @@ mod hit;
 mod ray;
 mod sphere;
 mod vec;
+mod shading;
 
 use camera::Camera;
 use hit::{Hit, World};
 use rand::Rng;
 use ray::Ray;
+use shading::DiffuseModel;
 use sphere::Sphere;
 use std::io::{stderr, Write};
+use std::time::Instant;
 use vec::{Color, Point3};
 
-// SE TODO: You made it to "Antialiasing"
+// SE TODO: You made it to "True Lambertian Reflection"
+// SE TODO: Something seems wrong...
 
-fn ray_color(ray: &Ray, world: &World) -> Color {
-    if let Some(hit) = world.hit(ray, 0.0, f64::INFINITY) {
-        hit.normal * 0.5 + 0.5
+fn ray_color(ray: &Ray, world: &World, depth: u64) -> Color {
+    if depth <= 0 {
+        // Too many bounces! Assume all energy lost
+        return Color::zero();
+    }
+
+    // t_min prevents hitting very near surfaces, aka shadow acne
+    if let Some(hit) = world.hit(ray, 0.001, f64::INFINITY) {
+        let reflection = shading::diffuse(hit, DiffuseModel::Lambert);
+        // Decrease energy for each bounce.
+        0.5 * ray_color(&reflection, world, depth - 1)
     } else {
         // Background color
         let unit_direction = ray.direction().normalized();
@@ -29,11 +41,14 @@ fn ray_color(ray: &Ray, world: &World) -> Color {
 }
 
 fn main() {
+    let start = Instant::now();
+
     // Image
     const ASPECT_RATIO: f64 = 16.0 / 9.0;
     const IMAGE_WIDTH: u64 = 256;
     const IMAGE_HEIGHT: u64 = ((IMAGE_WIDTH as f64) / ASPECT_RATIO) as u64;
     const SAMPLES_PER_PIXEL: u64 = 100;
+    const MAX_DEPTH: u64 = 5;
 
     // World
     let mut world = World::new();
@@ -69,11 +84,11 @@ fn main() {
                 let v = (j as f64 + random_v) / ((IMAGE_HEIGHT - 1) as f64);
 
                 let ray = camera.get_ray(u, v);
-                pixel_color += ray_color(&ray, &world)
+                pixel_color += ray_color(&ray, &world, MAX_DEPTH)
             }
 
             println!("{}", pixel_color.format_color(SAMPLES_PER_PIXEL));
         }
     }
-    eprintln!("\nDone!");
+    eprintln!("\nDone in {} seconds!", start.elapsed().as_secs());
 }

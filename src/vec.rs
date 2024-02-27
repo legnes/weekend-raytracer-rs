@@ -54,11 +54,41 @@ impl Vec3 {
     }
 
     pub fn format_color(self, divisor: u64) -> String {
-        let r = ((self[0] / (divisor as f64)).clamp(0.0, 0.999) * 256.0) as u64;
-        let g = ((self[1] / (divisor as f64)).clamp(0.0, 0.999) * 256.0) as u64;
-        let b = ((self[2] / (divisor as f64)).clamp(0.0, 0.999) * 256.0) as u64;
+        // First divide by number of samples
+        let r = ((self[0] / (divisor as f64))
+            // Gamma correction
+            .powf(1.0 / 2.0)
+            // Clamp
+            .clamp(0.0, 0.999)
+            // Map to byte
+            * 256.0) as u64;
+
+        let g = ((self[1] / (divisor as f64))
+            .powf(1.0 / 2.0)
+            .clamp(0.0, 0.999)
+            * 256.0) as u64;
+
+        let b = ((self[2] / (divisor as f64))
+            .powf(1.0 / 2.0)
+            .clamp(0.0, 0.999)
+            * 256.0) as u64;
 
         format!("{} {} {}", r, g, b)
+    }
+
+    pub fn from_spherical(r: f64, phi: f64, theta: f64) -> Self {
+        let cos_phi = phi.cos();
+        let sin_phi = phi.sin();
+        let cos_theta = theta.cos();
+        let sin_theta = theta.sin();
+
+        Self {
+            e: [
+                r * sin_theta * cos_phi,
+                r * sin_theta * sin_phi,
+                r * cos_theta,
+            ],
+        }
     }
 }
 
