@@ -1,22 +1,25 @@
 mod camera;
 mod hit;
+mod material;
 mod ray;
+mod sampling;
 mod sphere;
 mod vec;
-mod shading;
 
 use camera::Camera;
 use hit::{Hit, World};
+use material::{Lambertian, Metal};
 use rand::Rng;
 use ray::Ray;
-use shading::DiffuseModel;
 use sphere::Sphere;
 use std::io::{stderr, Write};
+use std::rc::Rc;
 use std::time::Instant;
 use vec::{Color, Point3};
 
-// SE TODO: You made it to "True Lambertian Reflection"
-// SE TODO: Something seems wrong...
+// SE TODO: You made it up to "Dielectrics"
+
+// SE TODO: Should try profiling this...seems to slow down...?
 
 fn ray_color(ray: &Ray, world: &World, depth: u64) -> Color {
     if depth <= 0 {
@@ -26,9 +29,11 @@ fn ray_color(ray: &Ray, world: &World, depth: u64) -> Color {
 
     // t_min prevents hitting very near surfaces, aka shadow acne
     if let Some(hit) = world.hit(ray, 0.001, f64::INFINITY) {
-        let reflection = shading::diffuse(hit, DiffuseModel::Lambert);
-        // Decrease energy for each bounce.
-        0.5 * ray_color(&reflection, world, depth - 1)
+        if let Some((attenuation, reflection)) = hit.material.scatter(ray, &hit) {
+            attenuation * ray_color(&reflection, world, depth - 1)
+        } else {
+            Color::zero()
+        }
     } else {
         // Background color
         let unit_direction = ray.direction().normalized();
@@ -52,8 +57,21 @@ fn main() {
 
     // World
     let mut world = World::new();
-    world.push(Box::new(Sphere::new(Point3::new(0.0, 0.0, -1.0), 0.5)));
-    world.push(Box::new(Sphere::new(Point3::new(0.0, -100.5, -1.0), 100.0)));
+
+    let mat_ground = Rc::new(Lambertian::new(Color::new(0.8, 0.8, 0.0)));
+    let mat_center = Rc::new(Lambertian::new(Color::new(0.7, 0.3, 0.3)));
+    let mat_left = Rc::new(Metal::new(Color::new(0.8, 0.8, 0.8), 0.3));
+    let mat_right = Rc::new(Metal::new(Color::new(0.8, 0.6, 0.2), 1.0));
+
+    let sphere_ground = Sphere::new(Point3::new(0.0, -100.5, -1.0), 100.0, mat_ground);
+    let sphere_center = Sphere::new(Point3::new(0.0, 0.0, -1.0), 0.5, mat_center);
+    let sphere_left = Sphere::new(Point3::new(-1.0, 0.0, -1.0), 0.5, mat_left);
+    let sphere_right = Sphere::new(Point3::new(1.0, 0.0, -1.0), 0.5, mat_right);
+
+    world.push(Box::new(sphere_ground));
+    world.push(Box::new(sphere_center));
+    world.push(Box::new(sphere_left));
+    world.push(Box::new(sphere_right));
 
     // Camera
     let camera = Camera::new();

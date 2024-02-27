@@ -1,12 +1,14 @@
+use std::rc::Rc;
+use super::material::Scatter;
 use super::ray::Ray;
 use super::vec::{Point3, Vec3};
 
-// SE TODO: Do we want to derive Copy for this?
 pub struct HitRecord {
+    pub t: f64,
     pub position: Point3,
     pub normal: Vec3,
-    pub t: f64,
     pub front_face: bool,
+    pub material: Rc<dyn Scatter>,
 }
 
 impl HitRecord {
