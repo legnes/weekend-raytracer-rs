@@ -1,6 +1,6 @@
 use std::fmt;
 use std::fmt::Display;
-use std::ops::{Add, AddAssign, Div, DivAssign, Index, IndexMut, Mul, MulAssign, Sub, SubAssign};
+use std::ops::{Add, AddAssign, Div, DivAssign, Index, IndexMut, Mul, MulAssign, Neg, Sub, SubAssign};
 
 #[derive(Clone, Copy)]
 pub struct Vec3 {
@@ -17,6 +17,10 @@ impl Vec3 {
 
     pub fn zero() -> Self {
         Self::new(0.0, 0.0, 0.0)
+    }
+
+    pub fn one() -> Self {
+        Self::new(1.0, 1.0, 1.0)
     }
 
     pub fn x(self) -> f64 {
@@ -98,8 +102,25 @@ impl Vec3 {
 
     // Reflect across a unit normal vector n that points against self
     // Calculate the proj of self onto n in the direction of n and add it twice
+    // Self is the incident vector
     pub fn reflect(self, n: Self) -> Self {
         self - 2.0 * self.dot(n) * n
+    }
+
+    // Derived from vector form of snell's law
+    // Good explanation here:
+    // http://cosinekitty.com/raytrace/chapter09_refraction.html
+    // Self is the incident vector
+    pub fn refract(self, n: Self, eta_i_over_eta_t: f64) -> Self {
+        // SE TODO: min is a shortcut to normalized?
+        let cos_theta = (-self).dot(n).min(1.0);
+        let refracted_perpendicular = eta_i_over_eta_t * (self + cos_theta * n);
+        // SE TODO: why abs? Is this picking the correct root?
+        let refracted_parallel = -(1.0 - refracted_perpendicular.length().powi(2))
+            .abs()
+            .sqrt()
+            * n;
+        refracted_perpendicular + refracted_parallel
     }
 }
 
@@ -237,6 +258,14 @@ impl DivAssign<f64> for Vec3 {
         *self = Self {
             e: [self[0] / rhs, self[1] / rhs, self[2] / rhs],
         }
+    }
+}
+
+impl Neg for Vec3 {
+    type Output = Self;
+
+    fn neg(self) -> Self {
+        (-1.0) * self
     }
 }
 

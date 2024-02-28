@@ -8,7 +8,7 @@ mod vec;
 
 use camera::Camera;
 use hit::{Hit, World};
-use material::{Lambertian, Metal};
+use material::{Dielectric, Lambertian, Metal};
 use rand::Rng;
 use ray::Ray;
 use sphere::Sphere;
@@ -29,8 +29,8 @@ fn ray_color(ray: &Ray, world: &World, depth: u64) -> Color {
 
     // t_min prevents hitting very near surfaces, aka shadow acne
     if let Some(hit) = world.hit(ray, 0.001, f64::INFINITY) {
-        if let Some((attenuation, reflection)) = hit.material.scatter(ray, &hit) {
-            attenuation * ray_color(&reflection, world, depth - 1)
+        if let Some((attenuation, reflected)) = hit.material.scatter(ray, &hit) {
+            attenuation * ray_color(&reflected, world, depth - 1)
         } else {
             Color::zero()
         }
@@ -59,18 +59,21 @@ fn main() {
     let mut world = World::new();
 
     let mat_ground = Rc::new(Lambertian::new(Color::new(0.8, 0.8, 0.0)));
-    let mat_center = Rc::new(Lambertian::new(Color::new(0.7, 0.3, 0.3)));
-    let mat_left = Rc::new(Metal::new(Color::new(0.8, 0.8, 0.8), 0.3));
-    let mat_right = Rc::new(Metal::new(Color::new(0.8, 0.6, 0.2), 1.0));
+    let mat_center = Rc::new(Lambertian::new(Color::new(0.1, 0.2, 0.5)));
+    let mat_left = Rc::new(Dielectric::new(1.5));
+    let mat_left_inner = Rc::new(Dielectric::new(1.5));
+    let mat_right = Rc::new(Metal::new(Color::new(0.8, 0.6, 0.2), 0.0));
 
     let sphere_ground = Sphere::new(Point3::new(0.0, -100.5, -1.0), 100.0, mat_ground);
     let sphere_center = Sphere::new(Point3::new(0.0, 0.0, -1.0), 0.5, mat_center);
     let sphere_left = Sphere::new(Point3::new(-1.0, 0.0, -1.0), 0.5, mat_left);
+    let sphere_left_inner = Sphere::new(Point3::new(-1.0, 0.0, -1.0), -0.4, mat_left_inner);
     let sphere_right = Sphere::new(Point3::new(1.0, 0.0, -1.0), 0.5, mat_right);
 
     world.push(Box::new(sphere_ground));
     world.push(Box::new(sphere_center));
     world.push(Box::new(sphere_left));
+    world.push(Box::new(sphere_left_inner));
     world.push(Box::new(sphere_right));
 
     // Camera

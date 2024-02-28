@@ -1,9 +1,9 @@
-use crate::sampling::random_in_unit_sphere;
-
 use super::hit::HitRecord;
 use super::ray::Ray;
 use super::sampling;
+use super::sampling::random_in_unit_sphere;
 use super::vec::{Color, Vec3};
+use rand::Rng;
 
 pub trait Scatter {
     fn scatter(&self, incident: &Ray, hit: &HitRecord) -> Option<(Color, Ray)>;
@@ -70,16 +70,78 @@ impl Metal {
 
 impl Scatter for Metal {
     fn scatter(&self, incident: &Ray, hit: &HitRecord) -> Option<(Color, Ray)> {
-        let scatter_direction =
-            incident.direction().reflect(hit.normal) + self.fuzz * random_in_unit_sphere();
-        let reflection = Ray::new(hit.position, scatter_direction);
+        let reflected = incident.direction().reflect(hit.normal);
+        let scattered = Ray::new(
+            hit.position,
+            reflected + self.fuzz * random_in_unit_sphere(),
+        );
 
         // Make sure the fuzz has not put us inside the surface
-        if reflection.direction().dot(hit.normal) > 0.0 {
-            Some((self.albedo, reflection))
+        if scattered.direction().dot(hit.normal) > 0.0 {
+            Some((self.albedo, scattered))
         } else {
             None
         }
+    }
+}
+
+pub struct Dielectric {
+    refractive_index: f64,
+}
+
+impl Dielectric {
+    #[allow(dead_code)]
+    pub fn new(refractive_index: f64) -> Self {
+        Self { refractive_index }
+    }
+
+    fn reflectance(cos: f64, refractive_index_1: f64, refractive_index_2: f64) -> f64 {
+        // Schlick approximation
+        let r0 = ((refractive_index_1 - refractive_index_2)
+            / (refractive_index_1 + refractive_index_2))
+            .powi(2);
+        r0 + (1.0 - r0) * (1.0 - cos).powi(5)
+    }
+}
+
+impl Scatter for Dielectric {
+    fn scatter(&self, incident: &Ray, hit: &HitRecord) -> Option<(Color, Ray)> {
+        // SE TODO: Looks like we are assuming this is always interacting with air?
+        let other_refractive_index = 1.0;
+        let refractive_ratio = if hit.front_face {
+            other_refractive_index / self.refractive_index
+        } else {
+            self.refractive_index / other_refractive_index
+        };
+
+        let unit_incident = incident.direction().normalized();
+        // SE TODO: Why do we need min() if already normalized?
+        let cos_theta = (-unit_incident).dot(hit.normal).min(1.0);
+        let sin_theta = (1.0 - cos_theta.powi(2)).sqrt();
+
+        // Total internal reflection
+        // If going from low to high index of refraction, there may not be a solution to Snell's law
+        // when the incident angle is low enough (sin(theta) is large, so that ratio * sin(theta) > 1,
+        // since sin(theta') can't be > 1)
+        let cannot_refract = refractive_ratio * sin_theta > 1.0;
+
+        // Fresnel reflection
+        let mut rng = rand::thread_rng();
+        // SE TODO: The book uses the ratio and 1.0 here? Check math and make sure it doesn't matter
+        let will_reflect = rng.gen::<f64>()
+            < Self::reflectance(cos_theta, self.refractive_index, other_refractive_index);
+
+        let out_direction = if cannot_refract || will_reflect {
+            // Reflect
+            unit_incident.reflect(hit.normal)
+        } else {
+            // Refract
+            unit_incident.refract(hit.normal, refractive_ratio)
+        };
+
+        let scattered = Ray::new(hit.position, out_direction);
+
+        Some((Color::one(), scattered))
     }
 }
 
@@ -137,7 +199,7 @@ impl DiffuseModel for UniformDiffuse {
         let dir = sampling::random_in_unit_sphere();
         if hit.normal.dot(dir) <= 0.0 {
             // In the opposite hemisphere as the normal
-            (-1.0) * dir
+            -dir
         } else {
             dir
         }
