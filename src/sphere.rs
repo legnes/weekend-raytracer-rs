@@ -2,16 +2,16 @@ use super::hit::{Hit, HitRecord};
 use super::material::Scatter;
 use super::ray::Ray;
 use super::vec::{Point3, Vec3};
-use std::rc::Rc;
+use std::sync::Arc;
 
 pub struct Sphere {
     center: Point3,
     radius: f64,
-    material: Rc<dyn Scatter>,
+    material: Arc<dyn Scatter>,
 }
 
 impl Sphere {
-    pub fn new(center: Point3, radius: f64, material: Rc<dyn Scatter>) -> Self {
+    pub fn new(center: Point3, radius: f64, material: Arc<dyn Scatter>) -> Self {
         Self {
             center,
             radius,

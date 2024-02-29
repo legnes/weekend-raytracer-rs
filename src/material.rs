@@ -3,18 +3,18 @@ use super::ray::Ray;
 use super::vec::{Color, Vec3};
 use rand::Rng;
 
-pub trait Scatter {
+pub trait Scatter : Send + Sync {
     fn scatter(&self, incident: &Ray, hit: &HitRecord) -> Option<(Color, Ray)>;
 }
 
-trait DiffuseModel {
+trait DiffuseModel : Send + Sync {
     fn get_scatter_direction(hit: &HitRecord) -> Vec3;
     fn get_albedo(&self) -> Color;
 }
 
 impl<T> Scatter for T
 where
-    T: DiffuseModel,
+    T: DiffuseModel + Send + Sync,
 {
     // Note we could just as well only scatter with some probability p and have attenuation be albedo/p
     fn scatter(&self, _incident: &Ray, hit: &HitRecord) -> Option<(Color, Ray)> {
@@ -102,7 +102,6 @@ impl Dielectric {
     }
 }
 
-// SE TODO: Make rainbows! Make scatter freq-dependence and shoot 1 freq per ray
 impl Scatter for Dielectric {
     fn scatter(&self, incident: &Ray, hit: &HitRecord) -> Option<(Color, Ray)> {
         // SE TODO: Looks like we are assuming this is always interacting with air?

@@ -13,13 +13,28 @@ use rand::Rng;
 use ray::Ray;
 use sphere::Sphere;
 use std::io::{stderr, Write};
-use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Instant;
 use vec::{Color, Point3};
+use rayon::prelude::*;
 
 use crate::vec::Vec3;
 
 // SE TODO: Should try profiling this...seems to slow down...?
+
+// SE TODO: Next steps
+//
+// Rainbows - Make dielectric scatter frequency-dependence and shoot 1 frequency per ray
+// HDR rendering
+// PBR materials
+// Image-based lighting
+//
+// Lights — You can do this explicitly, by sending shadow rays to lights, or it can be done implicitly by making some objects emit light, biasing scattered rays toward them, and then downweighting those rays to cancel out the bias. Both work. I am in the minority in favoring the latter approach.
+// Triangles — Most cool models are in triangle form. The model I/O is the worst and almost everybody tries to get somebody else’s code to do this.
+// Surface Textures — This lets you paste images on like wall paper. Pretty easy and a good thing to do.
+// Solid textures — Ken Perlin has his code online. Andrew Kensler has some very cool info at his blog.
+// Volumes and Media — Cool stuff and will challenge your software architecture. I favor making volumes have the hittable interface and probabilistically have intersections based on density. Your rendering code doesn’t even have to know it has volumes with that method.
+// Parallelism — Run N copies of your code on N cores with different random seeds. Average the N runs. This averaging can also be done hierarchically where N/2 pairs can be averaged to get N/4 images, and pairs of those can be averaged. That method of parallelism should extend well into the thousands of cores with very little coding.
 
 fn ray_color(ray: &Ray, world: &World, depth: u64) -> Color {
     if depth <= 0 {
@@ -49,11 +64,11 @@ fn ray_color(ray: &Ray, world: &World, depth: u64) -> Color {
 fn small_scene() -> World {
     let mut world = World::new();
 
-    let mat_ground = Rc::new(Lambertian::new(Color::new(0.8, 0.8, 0.0)));
-    let mat_center = Rc::new(Lambertian::new(Color::new(0.1, 0.2, 0.5)));
-    let mat_left = Rc::new(Dielectric::new(1.5));
-    let mat_left_inner = Rc::new(Dielectric::new(1.5));
-    let mat_right = Rc::new(Metal::new(Color::new(0.8, 0.6, 0.2), 0.0));
+    let mat_ground = Arc::new(Lambertian::new(Color::new(0.8, 0.8, 0.0)));
+    let mat_center = Arc::new(Lambertian::new(Color::new(0.1, 0.2, 0.5)));
+    let mat_left = Arc::new(Dielectric::new(1.5));
+    let mat_left_inner = Arc::new(Dielectric::new(1.5));
+    let mat_right = Arc::new(Metal::new(Color::new(0.8, 0.6, 0.2), 0.0));
 
     let sphere_ground = Sphere::new(Point3::new(0.0, -100.5, -1.0), 100.0, mat_ground);
     let sphere_center = Sphere::new(Point3::new(0.0, 0.0, -1.0), 0.5, mat_center);
@@ -75,7 +90,7 @@ fn random_scene() -> World {
     let mut rng = rand::thread_rng();
     let mut world = World::new();
 
-    let ground_mat = Rc::new(Lambertian::new(Color::new(0.5, 0.5, 0.5)));
+    let ground_mat = Arc::new(Lambertian::new(Color::new(0.5, 0.5, 0.5)));
     let ground_sphere = Sphere::new(Point3::new(0.0, -1000.0, 0.0), 1000.0, ground_mat);
     world.push(Box::new(ground_sphere));
 
@@ -85,21 +100,21 @@ fn random_scene() -> World {
             let dz = rng.gen_range(0.0..0.9);
             let center = Point3::new((x as f64) + dx, 0.2, (z as f64) + dz);
 
-            let mat: Rc<dyn Scatter>;
+            let mat: Arc<dyn Scatter>;
             let mat_sample: f64 = rng.gen();
             if mat_sample < 0.8 {
                 // Diffuse
                 let albedo = Color::random() * Color::random();
-                mat = Rc::new(Lambertian::new(albedo));
+                mat = Arc::new(Lambertian::new(albedo));
             } else if mat_sample < 0.95 {
                 // Metal
                 let albedo = Color::random_range(0.4..1.0);
                 let fuzz = rng.gen_range(0.0..0.5);
-                mat = Rc::new(Metal::new(albedo, fuzz));
+                mat = Arc::new(Metal::new(albedo, fuzz));
             } else {
                 // Dielectric
                 // SE TODO: play with ref index?
-                mat = Rc::new(Dielectric::new(1.5));
+                mat = Arc::new(Dielectric::new(1.5));
             }
 
             let sphere = Sphere::new(center, 0.2, mat);
@@ -107,9 +122,9 @@ fn random_scene() -> World {
         }
     }
 
-    let dielectric_mat = Rc::new(Dielectric::new(1.5));
-    let lambertian_mat = Rc::new(Lambertian::new(Color::new(0.4, 0.2, 0.1)));
-    let metal_mat = Rc::new(Metal::new(Color::new(0.7, 0.6, 0.5), 0.0));
+    let dielectric_mat = Arc::new(Dielectric::new(1.5));
+    let lambertian_mat = Arc::new(Lambertian::new(Color::new(0.4, 0.2, 0.1)));
+    let metal_mat = Arc::new(Metal::new(Color::new(0.7, 0.6, 0.5), 0.0));
 
     let dielectric_sphere = Sphere::new(Point3::new(0.0, 1.0, 0.0), 1.0, dielectric_mat);
     let lambertian_sphere = Sphere::new(Point3::new(-4.0, 1.0, 0.0), 1.0, lambertian_mat);
@@ -127,7 +142,7 @@ fn main() {
 
     // Image
     const ASPECT_RATIO: f64 = 3.0 / 2.0;
-    const IMAGE_WIDTH: u64 = 1200;
+    const IMAGE_WIDTH: u64 = 512;
     const IMAGE_HEIGHT: u64 = ((IMAGE_WIDTH as f64) / ASPECT_RATIO) as u64;
     const SAMPLES_PER_PIXEL: u64 = 500;
     const MAX_DEPTH: u64 = 50;
@@ -162,7 +177,6 @@ fn main() {
     println!("255");
 
     // Pixel values
-    let mut rng = rand::thread_rng();
     for j in (0..IMAGE_HEIGHT).rev() {
         eprint!(
             "\rRunning scanline: {:3} of {}",
@@ -171,7 +185,8 @@ fn main() {
         );
         stderr().flush().unwrap();
 
-        for i in 0..IMAGE_WIDTH {
+        let scanline: Vec<Color> = (0..IMAGE_WIDTH).into_par_iter().map(|i| {
+            let mut rng = rand::thread_rng();
             let mut pixel_color = Color::zero();
             for _ in 0..SAMPLES_PER_PIXEL {
                 // SE TODO: Try adding stratification
@@ -185,6 +200,10 @@ fn main() {
                 pixel_color += ray_color(&ray, &world, MAX_DEPTH)
             }
 
+            pixel_color
+        }).collect();
+
+        for pixel_color in scanline {
             println!("{}", pixel_color.format_color(SAMPLES_PER_PIXEL));
         }
     }
