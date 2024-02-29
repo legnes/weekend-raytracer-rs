@@ -1,7 +1,5 @@
 use super::hit::HitRecord;
 use super::ray::Ray;
-use super::sampling;
-use super::sampling::random_in_unit_sphere;
 use super::vec::{Color, Vec3};
 use rand::Rng;
 
@@ -52,7 +50,7 @@ impl DiffuseModel for Lambertian {
         // Diffuse lambertian --
         // Reflect in the direction of the normal modulated by a random vector on the unit sphere.
         // This scales by cos(theta) where theta is angle from the normal
-        hit.normal + sampling::random_on_unit_sphere()
+        hit.normal + Vec3::random_on_unit_sphere()
     }
 }
 
@@ -73,7 +71,7 @@ impl Scatter for Metal {
         let reflected = incident.direction().reflect(hit.normal);
         let scattered = Ray::new(
             hit.position,
-            reflected + self.fuzz * random_in_unit_sphere(),
+            reflected + self.fuzz * Vec3::random_in_unit_sphere(),
         );
 
         // Make sure the fuzz has not put us inside the surface
@@ -104,6 +102,7 @@ impl Dielectric {
     }
 }
 
+// SE TODO: Make rainbows! Make scatter freq-dependence and shoot 1 freq per ray
 impl Scatter for Dielectric {
     fn scatter(&self, incident: &Ray, hit: &HitRecord) -> Option<(Color, Ray)> {
         // SE TODO: Looks like we are assuming this is always interacting with air?
@@ -172,7 +171,7 @@ impl DiffuseModel for ApproximateLambertian {
         // This scales by cos^3(theta), so it will be a bit darker
         // since more rays are scattered towards the normal
         // SE TODO: Not quite sure why this would mean darker...
-        hit.normal + sampling::random_in_unit_sphere()
+        hit.normal + Vec3::random_in_unit_sphere()
     }
 }
 
@@ -196,7 +195,7 @@ impl DiffuseModel for UniformDiffuse {
         // Uniform Diffuse --
         // A uniform scatter direction for all angles away from the hit point,
         // with no dependence on the angle from the normal
-        let dir = sampling::random_in_unit_sphere();
+        let dir = Vec3::random_in_unit_sphere();
         if hit.normal.dot(dir) <= 0.0 {
             // In the opposite hemisphere as the normal
             -dir

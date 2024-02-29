@@ -1,6 +1,10 @@
+use rand::Rng;
+use std::f64::consts::PI;
 use std::fmt;
 use std::fmt::Display;
-use std::ops::{Add, AddAssign, Div, DivAssign, Index, IndexMut, Mul, MulAssign, Neg, Sub, SubAssign};
+use std::ops::{
+    Add, AddAssign, Div, DivAssign, Index, IndexMut, Mul, MulAssign, Neg, Range, Sub, SubAssign,
+};
 
 #[derive(Clone, Copy)]
 pub struct Vec3 {
@@ -93,6 +97,51 @@ impl Vec3 {
                 r * cos_theta,
             ],
         }
+    }
+
+    pub fn random() -> Self {
+        Self::random_range(0.0..1.0)
+    }
+
+    pub fn random_range(range: Range<f64>) -> Self {
+        let mut rng = rand::thread_rng();
+
+        Self {
+            e: [
+                rng.gen_range(range.clone()),
+                rng.gen_range(range.clone()),
+                rng.gen_range(range.clone()),
+            ],
+        }
+    }
+
+    pub fn random_on_unit_sphere() -> Self {
+        let mut rng = rand::thread_rng();
+
+        let phi = rng.gen_range(0.0..(2.0 * PI));
+        // Polar angle calc from https://karthikkaranth.me/blog/generating-random-points-in-a-sphere/
+        let theta = f64::acos(rng.gen_range(-1.0..1.0));
+
+        Self::from_spherical(1.0, phi, theta)
+    }
+
+    pub fn random_in_unit_sphere() -> Self {
+        let mut rng = rand::thread_rng();
+
+        let r = f64::powf(rng.gen(), 1.0 / 3.0);
+        let phi = rng.gen_range(0.0..(2.0 * PI));
+        let theta = f64::acos(rng.gen_range(-1.0..1.0));
+
+        Self::from_spherical(r, phi, theta)
+    }
+
+    pub fn random_in_unit_disc() -> Self {
+        let mut rng = rand::thread_rng();
+
+        let r = rng.gen::<f64>().sqrt();
+        let theta = rng.gen::<f64>() * 2.0 * PI;
+
+        Self::new(r * theta.cos(), r * theta.sin(), 0.0)
     }
 
     pub fn near_zero(self) -> bool {

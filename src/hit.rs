@@ -1,7 +1,7 @@
-use std::rc::Rc;
 use super::material::Scatter;
 use super::ray::Ray;
 use super::vec::{Point3, Vec3};
+use std::rc::Rc;
 
 pub struct HitRecord {
     pub t: f64,
@@ -29,7 +29,7 @@ pub trait Hit {
     fn hit(&self, ray: &Ray, t_min: f64, t_max: f64) -> Option<HitRecord>;
 }
 
-pub type World  = Vec<Box<dyn Hit>>;
+pub type World = Vec<Box<dyn Hit>>;
 
 impl Hit for World {
     fn hit(&self, ray: &Ray, t_min: f64, t_max: f64) -> Option<HitRecord> {
