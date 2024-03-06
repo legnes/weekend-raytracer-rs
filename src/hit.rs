@@ -1,3 +1,4 @@
+use super::bvh::Bvh;
 use super::material::Scatter;
 use super::ray::Ray;
 use super::vec::{Point3, Vec3};
@@ -29,20 +30,46 @@ pub trait Hit : Send + Sync {
     fn hit(&self, ray: &Ray, t_min: f64, t_max: f64) -> Option<HitRecord>;
 }
 
-pub type World = Vec<Box<dyn Hit>>;
+pub trait Bounded : Send + Sync {
+    fn centroid(&self) -> Point3;
+    fn aabb_min(&self) -> Point3;
+    fn aabb_max(&self) -> Point3;
+}
 
-impl Hit for World {
-    fn hit(&self, ray: &Ray, t_min: f64, t_max: f64) -> Option<HitRecord> {
+pub trait Primitive : Hit + Bounded {}
+
+pub type World = Vec<Box<dyn Primitive>>;
+
+pub struct Scene {
+    primitives: World,
+    bvh: Bvh,
+}
+
+impl Scene {
+    pub fn new(primitives: World) -> Self {
+        let bvh = Bvh::new(&primitives);
+        Self { primitives, bvh }
+    }
+
+    #[allow(dead_code)]
+    fn hit_slow(&self, ray: &Ray, t_min: f64, t_max: f64) -> Option<HitRecord> {
         let mut closest_t = t_max;
         let mut closest_record = None;
 
-        for object in self {
-            if let Some(record) = object.hit(ray, t_min, closest_t) {
+        for primitive in &self.primitives {
+            if let Some(record) = primitive.hit(ray, t_min, closest_t) {
                 closest_t = record.t;
                 closest_record = Some(record);
             }
         }
 
         closest_record
+    }
+}
+
+impl Hit for Scene {
+    fn hit(&self, ray: &Ray, t_min: f64, t_max: f64) -> Option<HitRecord> {
+        // self.hit_slow(ray, t_min, t_max)
+        self.bvh.hit(ray, t_min, t_max, &self.primitives)
     }
 }

@@ -6,7 +6,7 @@ use std::ops::{
     Add, AddAssign, Div, DivAssign, Index, IndexMut, Mul, MulAssign, Neg, Range, Sub, SubAssign,
 };
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Vec3 {
     e: [f64; 3],
 }
@@ -19,12 +19,16 @@ impl Vec3 {
         Self { e: [e0, e1, e2] }
     }
 
+    pub fn fill(v: f64) -> Self {
+        Self::new(v, v, v)
+    }
+
     pub fn zero() -> Self {
-        Self::new(0.0, 0.0, 0.0)
+        Self::fill(0.0)
     }
 
     pub fn one() -> Self {
-        Self::new(1.0, 1.0, 1.0)
+        Self::fill(1.0)
     }
 
     pub fn x(self) -> f64 {
@@ -59,6 +63,26 @@ impl Vec3 {
 
     pub fn normalized(self) -> Self {
         self / self.length()
+    }
+
+    pub fn min(self, other: Self) -> Self {
+        Self {
+            e: [
+                self[0].min(other[0]),
+                self[1].min(other[1]),
+                self[2].min(other[2]),
+            ],
+        }
+    }
+
+    pub fn max(self, other: Self) -> Self {
+        Self {
+            e: [
+                self[0].max(other[0]),
+                self[1].max(other[1]),
+                self[2].max(other[2]),
+            ],
+        }
     }
 
     pub fn format_color(self, divisor: u64) -> String {
@@ -246,6 +270,25 @@ impl SubAssign for Vec3 {
     }
 }
 
+// NOTE: Added this f64 version for me
+impl Sub<f64> for Vec3 {
+    type Output = Self;
+
+    fn sub(self, rhs: f64) -> Self {
+        Self {
+            e: [self[0] - rhs, self[1] - rhs, self[2] - rhs],
+        }
+    }
+}
+
+impl SubAssign<f64> for Vec3 {
+    fn sub_assign(&mut self, rhs: f64) -> () {
+        *self = Self {
+            e: [self[0] - rhs, self[1] - rhs, self[2] - rhs],
+        }
+    }
+}
+
 impl Mul<f64> for Vec3 {
     type Output = Self;
 
@@ -288,6 +331,16 @@ impl MulAssign for Vec3 {
     fn mul_assign(&mut self, rhs: Self) -> () {
         *self = Self {
             e: [self[0] * rhs[0], self[1] * rhs[1], self[2] * rhs[2]],
+        }
+    }
+}
+
+impl Div for Vec3 {
+    type Output = Self;
+
+    fn div(self, rhs: Vec3) -> Self::Output {
+        Self {
+            e: [self[0] / rhs[0], self[1] / rhs[1], self[2] / rhs[2]],
         }
     }
 }

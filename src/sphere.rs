@@ -1,4 +1,4 @@
-use super::hit::{Hit, HitRecord};
+use super::hit::{Bounded, Hit, HitRecord, Primitive};
 use super::material::Scatter;
 use super::ray::Ray;
 use super::vec::{Point3, Vec3};
@@ -59,3 +59,19 @@ impl Hit for Sphere {
         Some(hit)
     }
 }
+
+impl Bounded for Sphere {
+    fn centroid(&self) -> Point3 {
+        self.center
+    }
+
+    fn aabb_min(&self) -> Point3 {
+        self.center - self.radius
+    }
+
+    fn aabb_max(&self) -> Point3 {
+        self.center + self.radius
+    }
+}
+
+impl Primitive for Sphere {}

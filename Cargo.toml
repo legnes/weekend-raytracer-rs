@@ -8,3 +8,10 @@ edition = "2021"
 [dependencies]
 rand = "*"
 rayon = "*"
+dhat = "*"
+
+[profile.release]
+debug = true
+
+[features]
+dhat-heap = []
