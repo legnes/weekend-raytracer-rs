@@ -1,4 +1,3 @@
-use std::mem;
 use super::hit::HitRecord;
 use super::hit::World;
 use super::ray::Ray;
@@ -10,13 +9,13 @@ fn aabb_surface_area(aabb_min: Point3, aabb_max: Point3) -> f64 {
     extent.x() * extent.y() + extent.y() * extent.z() + extent.z() * extent.x()
 }
 
-fn intersect_ray_aabb(
+fn ray_intersects_aabb(
     aabb_min: Point3,
     aabb_max: Point3,
     ray: &Ray,
     t_min: f64,
     t_max: f64,
-) -> f64 {
+) -> bool {
     let t1 = (aabb_min - ray.origin()) / ray.direction();
     let t2 = (aabb_max - ray.origin()) / ray.direction();
     let aabb_t_min = (t1.x().min(t2.x()))
@@ -25,11 +24,7 @@ fn intersect_ray_aabb(
     let aabb_t_max = (t1.x().max(t2.x()))
         .min(t1.y().max(t2.y()))
         .min(t1.z().max(t2.z()));
-    if aabb_t_max >= aabb_t_min && aabb_t_min < t_max && aabb_t_max > t_min {
-        aabb_t_min
-    } else {
-        f64::INFINITY
-    }
+    aabb_t_max >= aabb_t_min && aabb_t_min < t_max && aabb_t_max > t_min
 }
 
 pub struct Bvh {
@@ -66,84 +61,6 @@ impl Bvh {
         bvh
     }
 
-    #[allow(dead_code)]
-    fn surface_area_heuristic(
-        &self,
-        node_index: usize,
-        axis: usize,
-        position: f64,
-        primitives: &World,
-    ) -> f64 {
-        let node = &self.nodes[node_index];
-        let primitive_start = node.primitive_start_or_left_child_index;
-        let primitive_count = node.primitive_count;
-
-        let mut left_aabb_min = Point3::zero();
-        let mut left_aabb_max = Point3::zero();
-        let mut right_aabb_min = Point3::zero();
-        let mut right_aabb_max = Point3::zero();
-
-        let mut left_count = 0;
-        let mut right_count = 0;
-
-        for i in primitive_start..(primitive_start + primitive_count) {
-            let primitive = &primitives[i];
-            if primitive.centroid()[axis] < position {
-                left_count += 1;
-                left_aabb_min = left_aabb_min.min(primitive.aabb_min());
-                left_aabb_max = left_aabb_max.max(primitive.aabb_max());
-            } else {
-                right_count += 1;
-                right_aabb_min = right_aabb_min.min(primitive.aabb_min());
-                right_aabb_max = right_aabb_max.max(primitive.aabb_max());
-            }
-        }
-
-        let cost = (left_count as f64) * aabb_surface_area(left_aabb_min, left_aabb_max)
-            + (right_count as f64) * aabb_surface_area(right_aabb_min, right_aabb_max);
-
-        if cost > 0.0 {
-            cost
-        } else {
-            f64::INFINITY
-        }
-    }
-
-    // SE TODO: Try to fix this....
-    // Use surface area heuristic to find the best split position
-    #[allow(dead_code)]
-    fn sah_split(&self, node_index: usize, primitives: &World) -> Option<(usize, f64)> {
-        let node = &self.nodes[node_index];
-        let primitive_start = node.primitive_start_or_left_child_index;
-        let primitive_count = node.primitive_count;
-        let mut best_axis: usize = 0;
-        let mut best_position = 0.0;
-        let mut best_cost = f64::INFINITY;
-        for axis in 0..3 {
-            for i in primitive_start..(primitive_start + primitive_count) {
-                let primitive = &primitives[i];
-                let position = primitive.centroid()[axis];
-                let cost = self.surface_area_heuristic(node_index, axis, position, primitives);
-                if cost < best_cost {
-                    best_axis = axis;
-                    best_position = position;
-                    best_cost = cost;
-                }
-            }
-        }
-
-        // Bail if splitting doesn't help
-        // If we are not using SAH, we should also terminate if the node has <= 2 (or some other thresh) primitives
-        let parent_area = aabb_surface_area(node.aabb_min, node.aabb_max);
-        let parent_cost = (node.primitive_count as f64) * parent_area;
-        if best_cost >= parent_cost {
-            return None;
-        }
-
-        Some((best_axis, best_position))
-    }
-
-    #[allow(dead_code)]
     fn midpoint_split(&self, node_index: usize, _primitives: &World) -> Option<(usize, f64)> {
         let node = &self.nodes[node_index];
         // Terminate if the node has <= some thresh primitives
@@ -165,7 +82,7 @@ impl Bvh {
     fn subdivide_node(&mut self, node_index: usize, primitives: &World) -> () {
         // Find the best place to split
         let (axis, split_position) =
-            if let Some(result) = self.sah_split(node_index, primitives) {
+            if let Some(result) = self.midpoint_split(node_index, primitives) {
                 result
             } else {
                 return;
@@ -214,55 +131,49 @@ impl Bvh {
     }
 
     pub fn hit(&self, ray: &Ray, t_min: f64, t_max: f64, primitives: &World) -> Option<HitRecord> {
-        let mut node = &self.nodes[self.root_index];
-        let mut traversal_stack = Vec::new();
+        self.hit_node(ray, t_min, t_max, primitives, self.root_index)
+    }
+
+    // SE TODO: I'd sort of like this to not be recursive?
+    fn hit_node(
+        &self,
+        ray: &Ray,
+        t_min: f64,
+        t_max: f64,
+        primitives: &World,
+        node_index: usize,
+    ) -> Option<HitRecord> {
+        let node = &self.nodes[node_index];
         let mut closest_t = t_max;
         let mut closest_record = None;
 
-        loop {
-            if node.is_leaf() {
-                // Hit all primitives on the node
-                let primitive_start = node.primitive_start_or_left_child_index;
-                for i in primitive_start..(primitive_start + node.primitive_count) {
-                    let primitive = &primitives[self.primitive_map[i]];
-                    if let Some(record) = primitive.hit(ray, t_min, closest_t) {
-                        closest_t = record.t;
-                        closest_record = Some(record);
-                    }
-                }
+        if !ray_intersects_aabb(node.aabb_min, node.aabb_max, ray, t_min, t_max) {
+            return None;
+        }
 
-                if let Some(node_index) = traversal_stack.pop() {
-                    node = &self.nodes[node_index];
-                } else {
-                    break;
+        if node.is_leaf() {
+            // Hit all primitives on the node
+            let primitive_start = node.primitive_start_or_left_child_index;
+            for i in primitive_start..(primitive_start + node.primitive_count) {
+                let primitive = &primitives[self.primitive_map[i]];
+                if let Some(record) = primitive.hit(ray, t_min, closest_t) {
+                    closest_t = record.t;
+                    closest_record = Some(record);
                 }
-            } else {
-                // Sort children near to far
-                let mut near_child_index = node.left_child_index();
-                let child = &self.nodes[near_child_index];
-                let mut near_dist = intersect_ray_aabb(child.aabb_min, child.aabb_max, ray, t_min, t_max);
-
-                let mut far_child_index = node.right_child_index();
-                let child = &self.nodes[far_child_index];
-                let mut far_dist = intersect_ray_aabb(child.aabb_min, child.aabb_max, ray, t_min, t_max);
-
-                if near_dist > far_dist {
-                    mem::swap(&mut near_child_index, &mut far_child_index);
-                    mem::swap(&mut near_dist, &mut far_dist);
-                }
-
-                if near_dist == f64::INFINITY {
-                    // Hit neither child -- continue traversing
-                    if let Some(node_index) = traversal_stack.pop() {
-                        node = &self.nodes[node_index];
-                    } else {
-                        break;
-                    }
-                } else {
-                    // Test the near child, and push the far onto the stack
-                    node = &self.nodes[near_child_index];
-                    traversal_stack.push(far_child_index);
-                }
+            }
+        } else {
+            // Hit left node
+            if let Some(record) =
+                self.hit_node(ray, t_min, closest_t, primitives, node.left_child_index())
+            {
+                closest_t = record.t;
+                closest_record = Some(record);
+            }
+            // Hit right node
+            if let Some(record) =
+                self.hit_node(ray, t_min, closest_t, primitives, node.right_child_index())
+            {
+                closest_record = Some(record);
             }
         }
 
