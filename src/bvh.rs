@@ -70,7 +70,7 @@ impl Bvh {
 
         // Bucket the primitive map into left and right
         // so that each node can reference a continuous slice of primitive indices
-        let mut left_cursor = node.primitive_start;
+        let mut left_cursor = node.primitive_start_or_left_child_index;
         let mut right_cursor = left_cursor + node.primitive_count - 1;
         while left_cursor < right_cursor {
             if primitives[self.primitive_map[left_cursor]].centroid()[axis] < split_position {
@@ -84,22 +84,20 @@ impl Bvh {
             }
         }
 
-        let left_primitive_count = left_cursor - node.primitive_start;
+        let left_primitive_count = left_cursor - node.primitive_start_or_left_child_index;
         // Base case: only one node (all left or all right)
         if left_primitive_count == 0 || left_primitive_count == node.primitive_count {
             return ();
         }
 
         // Create child nodes
-        node.left_child_index = self.nodes_used;
+        let left_child_index = self.nodes_used;
+        let right_child_index = left_child_index + 1;
         self.nodes_used += 2;
+        let primitive_start = node.primitive_start_or_left_child_index;
         let primitive_count = node.primitive_count;
         node.primitive_count = 0;
-
-        // Redeclare variables so node can go out of scope
-        let left_child_index = node.left_child_index();
-        let right_child_index = node.right_child_index();
-        let primitive_start = node.primitive_start;
+        node.primitive_start_or_left_child_index = left_child_index;
 
         let left_child = &mut self.nodes[left_child_index];
         left_child.set_primitive_range(primitive_start, left_primitive_count);
@@ -134,7 +132,8 @@ impl Bvh {
 
         if node.is_leaf() {
             // Hit all primitives on the node
-            for i in node.primitive_start..(node.primitive_start + node.primitive_count) {
+            let primitive_start = node.primitive_start_or_left_child_index;
+            for i in primitive_start..(primitive_start + node.primitive_count) {
                 let primitive = &primitives[self.primitive_map[i]];
                 if let Some(record) = primitive.hit(ray, t_min, closest_t) {
                     closest_t = record.t;
@@ -165,8 +164,7 @@ impl Bvh {
 pub struct Node {
     aabb_min: Point3,
     aabb_max: Point3,
-    left_child_index: usize,
-    primitive_start: usize,
+    primitive_start_or_left_child_index: usize,
     primitive_count: usize,
 }
 
@@ -175,18 +173,17 @@ impl Node {
         Self {
             aabb_min: Point3::zero(),
             aabb_max: Point3::zero(),
-            left_child_index: 0,
-            primitive_start: 0,
+            primitive_start_or_left_child_index: 0,
             primitive_count: 0,
         }
     }
 
     pub fn left_child_index(&self) -> usize {
-        self.left_child_index
+        self.primitive_start_or_left_child_index
     }
 
     pub fn right_child_index(&self) -> usize {
-        self.left_child_index + 1
+        self.primitive_start_or_left_child_index + 1
     }
 
     pub fn is_leaf(&self) -> bool {
@@ -194,16 +191,16 @@ impl Node {
     }
 
     pub fn set_primitive_range(&mut self, start: usize, count: usize) -> () {
-        self.primitive_start = start;
+        self.primitive_start_or_left_child_index = start;
         self.primitive_count = count;
     }
 
     pub fn update_bounds(&mut self, primitive_map: &Vec<usize>, primitives: &World) -> () {
         self.aabb_min = Point3::fill(f64::INFINITY);
         self.aabb_max = Point3::fill(f64::NEG_INFINITY);
-        for index_offset in 0..self.primitive_count {
-            let primitive_index = primitive_map[self.primitive_start + index_offset];
-            let primitive = &primitives[primitive_index];
+        let primitive_start = self.primitive_start_or_left_child_index;
+        for i in primitive_start..(primitive_start + self.primitive_count) {
+            let primitive = &primitives[primitive_map[i]];
             self.aabb_min = self.aabb_min.min(primitive.aabb_min());
             self.aabb_max = self.aabb_max.max(primitive.aabb_max());
         }

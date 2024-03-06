@@ -210,9 +210,11 @@ fn main() {
         );
         stderr().flush().unwrap();
 
-        // let scanline: Vec<Color> = (0..IMAGE_WIDTH).into_par_iter().map(|i| {
+        // let scanline: Vec<Color> = (0..IMAGE_WIDTH)
+        //     .into_iter()
+        //     .map(|i| {
         let scanline: Vec<Color> = (0..IMAGE_WIDTH)
-            .into_iter()
+            .into_par_iter()
             .map(|i| {
                 let mut rng = rand::thread_rng();
                 let mut pixel_color = Color::zero();
