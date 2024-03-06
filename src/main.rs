@@ -30,12 +30,9 @@ use std::sync::Arc;
 use std::time::Instant;
 use vec::{Color, Point3, Vec3};
 
-// SE TODO: Immediate next steps
-//  - Re-parallelize with bvh
-//  - Make bvh faster (keep following tutorial)
-
 // SE TODO: Next steps
 //
+//  - Make bvh faster (keep following tutorial)
 //  - Rainbows - Make dielectric scatter frequency-dependence and shoot 1 frequency per ray
 //  - HDR rendering
 //  - PBR materials
@@ -202,6 +199,7 @@ fn main() {
     println!("255");
 
     // Pixel values
+    // SE TODO: Run these in 4x4 tiles or something, for better data locality?
     for j in (0..IMAGE_HEIGHT).rev() {
         eprint!(
             "\rRunning scanline: {:3} of {}",
