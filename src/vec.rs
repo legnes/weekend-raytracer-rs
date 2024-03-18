@@ -19,33 +19,79 @@ impl Color {
         Self::new(1.0, 0.0, 1.0)
     }
 
-    pub fn tonemap(self, divisor: u64) -> (u8, u8, u8) {
-        // First divide by number of samples
-        let r = ((self[0] / (divisor as f64))
-            // Gamma correction
-            .powf(1.0 / 2.0)
-            // Clamp
-            .clamp(0.0, 0.999)
-            // Map to byte
-            * 256.0) as u8;
-
-        let g = ((self[1] / (divisor as f64))
-            .powf(1.0 / 2.0)
-            .clamp(0.0, 0.999)
-            * 256.0) as u8;
-
-        let b = ((self[2] / (divisor as f64))
-            .powf(1.0 / 2.0)
-            .clamp(0.0, 0.999)
-            * 256.0) as u8;
+    pub fn display(self) -> (u8, u8, u8) {
+        // Gamma correction, then clamp, then map to byte
+        let r = (self[0].powf(1.0 / 2.2).clamp(0.0, 0.999) * 256.0) as u8;
+        let g = (self[1].powf(1.0 / 2.2).clamp(0.0, 0.999) * 256.0) as u8;
+        let b = (self[2].powf(1.0 / 2.2).clamp(0.0, 0.999) * 256.0) as u8;
 
         (r, g, b)
     }
 
-    pub fn format(self, divisor: u64) -> String {
-        let (r, g, b) = self.tonemap(divisor);
+    pub fn format(self) -> String {
+        let (r, g, b) = self.display();
 
         format!("{} {} {}", r, g, b)
+    }
+
+    pub fn luminance(self) -> f64 {
+        // https://en.wikipedia.org/wiki/Relative_luminance
+        self.dot(Vec3::new(0.2126, 0.7152, 0.0722))
+
+        // https://www.w3.org/TR/AERT/#color-contrast
+        // self.dot(Vec3::new(0.299, 0.587, 0.114))
+    }
+
+    pub fn expose(self, d_stop: f64) -> Self {
+        self * f64::powf(2.0, d_stop)
+    }
+
+    // http://filmicworlds.com/blog/filmic-tonemapping-operators/
+    fn tonemap_uncharted_2_helper(self) -> Self {
+        let a = 0.15;
+        let b = 0.50;
+        let c = 0.10;
+        let d = 0.20;
+        let e = 0.02;
+        let f = 0.30;
+        ((self * (self * a + c * b) + d * e) / (self * (self * a + b) + d * f)) - e / f
+    }
+
+    pub fn tonemap_uncharted_2(self) -> Self {
+        let exposure_bias = 2.0;
+        let exposed = self * exposure_bias;
+        let curr = exposed.tonemap_uncharted_2_helper();
+
+        let white_scale = Vec3::one() / Vec3::fill(11.2).tonemap_uncharted_2_helper();
+        curr * white_scale
+    }
+
+    pub fn tonemap_hejl_burgess_dawson(self) -> Self {
+        let x = (self - 0.004).max(Vec3::zero());
+        (x * (x * 6.2 + 0.5)) / (x *(x * 6.2 + 1.7) + 0.06)
+    }
+
+    // https://64.github.io/tonemapping/
+    pub fn tonemap_clamp(self) -> Self {
+        self.clamp(0.0, 1.0)
+    }
+
+    pub fn tonemap_reinhard(self) -> Self {
+        self / (self + 1.0)
+    }
+
+    pub fn tonemap_reinhard_luminance(self) -> Self {
+        self / (self.luminance() + 1.0)
+    }
+
+    pub fn tonemap_aces_approximate(self) -> Self {
+        let temp = self * 0.6;
+        let a = 2.51;
+        let b = 0.03;
+        let c = 2.43;
+        let d = 0.59;
+        let e = 0.14;
+        (temp * (temp * a + b)) / (temp * (temp * c + d) + e).clamp(0.0, 1.0)
     }
 }
 

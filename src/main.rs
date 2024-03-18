@@ -19,7 +19,7 @@ mod vec;
 
 use camera::Camera;
 use hit::{Hit, Scene, World};
-use light::DirectionalLight;
+use light::{DirectionalLight, Light};
 #[allow(unused_imports)]
 use material::{Dielectric, Lambertian, Metal, Scatter};
 use rand::Rng;
@@ -32,8 +32,11 @@ use std::sync::Arc;
 use std::time::Instant;
 use vec::{Color, Point3, Vec3};
 
+// For now we are operating in spectral radiance
+const RADIANCE_SKY: f64 = 100.0;
+const RADIANCE_SUN: f64 = 1000.0;
+
 // SE TODO: Next steps
-//  - Switch to HDR
 //  - Add analytic sky model
 //  - Implement a few BRDFs
 //  - Move back to hittable light sources
@@ -41,6 +44,9 @@ use vec::{Color, Point3, Vec3};
 //  - Volumes!
 //  - Subsurface scattering
 //  - Rainbows - Make dielectric scatter frequency-dependence and shoot 1 frequency per ray
+//      - Each ray gets a wavelength
+//      - Scatter/brdf depends on wavelength
+//      - For shading, convert -> XYZ (mul by CIE color matching) -> rgb
 //  - HDR rendering
 //  - PBR materials
 //  - Image-based lighting
@@ -67,7 +73,8 @@ use vec::{Color, Point3, Vec3};
 //      - added sorted traversal (hit near child first), also seemed to slow things down
 //      - removed both...
 //  - Lighting
-//      - prototyped shadow ray approach for directional lights. looked good, but introduced entirely parallel shading model
+//      - prototyped shadow ray approach for directional lights. looked good, but introduced entirely parallel shading model and struggled with dielectric shadows
+//      - converted to hdr, experimented with different tonemappers
 //
 
 fn ray_color(ray: &Ray, scene: &Scene, depth: u64) -> Color {
@@ -104,8 +111,8 @@ fn ray_color(ray: &Ray, scene: &Scene, depth: u64) -> Color {
         let unit_direction = ray.direction().normalized();
         let t = (unit_direction.y() + 1.0) * 0.5;
         // Radial gradient around the vertical
-        let from = Color::new(1.0, 1.0, 1.0);
-        let to = Color::new(0.5, 0.7, 1.0);
+        let from = RADIANCE_SKY * Color::new(1.0, 1.0, 1.0);
+        let to = RADIANCE_SKY * Color::new(0.5, 0.7, 1.0);
         (1.0 - t) * from + t * to
     }
 }
@@ -187,6 +194,36 @@ fn random_world(n: i32) -> World {
     world
 }
 
+#[allow(dead_code)]
+fn random_lights() -> Vec<Box<dyn Light>> {
+    let sun1 = Box::new(DirectionalLight::new(
+        Vec3::new(1.0, -1.0, 1.0),
+        Color::one() * RADIANCE_SUN,
+    ));
+
+    let sun2 = Box::new(DirectionalLight::new(
+        Vec3::random_range(-1.0..-0.1),
+        Color::random_range(0.25..1.0) * RADIANCE_SUN,
+    ));
+
+    vec![sun1, sun2]
+}
+
+#[allow(dead_code)]
+fn static_lights() -> Vec<Box<dyn Light>> {
+    let sun1 = Box::new(DirectionalLight::new(
+        Vec3::new(1.0, -1.0, 1.0),
+        Color::new(0.8, 1.0, 0.9) * RADIANCE_SUN,
+    ));
+
+    let sun2 = Box::new(DirectionalLight::new(
+        Vec3::new(-0.4, -1.0, 1.0),
+        Color::new(1.0, 0.9, 0.8) * RADIANCE_SUN / 2.0,
+    ));
+
+    vec![sun1, sun2]
+}
+
 fn main() {
     #[cfg(feature = "dhat-heap")]
     let _profiler = dhat::Profiler::new_heap();
@@ -200,16 +237,8 @@ fn main() {
     const SAMPLES_PER_PIXEL: u64 = 100; // 500;
     const MAX_DEPTH: u64 = 10; // 50;
 
-    // World
-    let sun1 = Box::new(DirectionalLight::new(
-        Vec3::new(1.0, -1.0, 1.0),
-        Color::one(),
-    ));
-    let sun2 = Box::new(DirectionalLight::new(
-        Vec3::random_range(-1.0..0.5),
-        Color::random_range(0.25..1.0),
-    ));
-    let scene = Scene::new(random_world(11), vec![sun1, sun2]);
+    // Scene
+    let scene = Scene::new(random_world(11), random_lights());
 
     // Camera
     let look_from = Point3::new(13.0, 2.0, 3.0);
@@ -267,12 +296,12 @@ fn main() {
                     pixel_color += ray_color(&ray, &scene, MAX_DEPTH)
                 }
 
-                pixel_color
+                pixel_color / (SAMPLES_PER_PIXEL as f64)
             })
             .collect();
 
         for pixel_color in scanline {
-            println!("{}", pixel_color.format(SAMPLES_PER_PIXEL));
+            println!("{}", pixel_color.expose(-8.5).tonemap_aces_approximate().format());
         }
     }
     eprintln!("\nDone in {} seconds!", start.elapsed().as_secs());
