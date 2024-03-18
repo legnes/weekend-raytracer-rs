@@ -3,11 +3,14 @@ use super::ray::Ray;
 use super::vec::{Color, Vec3};
 use rand::Rng;
 
-pub trait Scatter : Send + Sync {
+pub trait Scatter: Send + Sync {
     fn scatter(&self, incident: &Ray, hit: &HitRecord) -> Option<(Color, Ray)>;
+    // We are assuming to_light and hit.normal are normalized
+    fn shade(&self, from_view: &Ray, to_light: &Ray, hit: &HitRecord) -> Color;
+    fn casts_shadow(&self) -> bool;
 }
 
-trait DiffuseModel : Send + Sync {
+trait DiffuseModel: Send + Sync {
     fn get_scatter_direction(hit: &HitRecord) -> Vec3;
     fn get_albedo(&self) -> Color;
 }
@@ -27,6 +30,15 @@ where
         }
 
         Some((self.get_albedo(), Ray::new(hit.position, scatter_direction)))
+    }
+
+    // SE TODO: This is lambertian, need to figure out the other two distributions
+    fn shade(&self, _from_view: &Ray, to_light: &Ray, hit: &HitRecord) -> Color {
+        self.get_albedo() * hit.normal.dot(to_light.direction()).clamp(0.0, 1.0)
+    }
+
+    fn casts_shadow(&self) -> bool {
+        true
     }
 }
 
@@ -80,6 +92,20 @@ impl Scatter for Metal {
         } else {
             None
         }
+    }
+
+    fn shade(&self, from_view: &Ray, to_light: &Ray, hit: &HitRecord) -> Color {
+        let view_reflected = from_view.direction().normalized().reflect(hit.normal);
+        // Phong specular
+        self.albedo
+            * view_reflected
+                .dot(to_light.direction())
+                .clamp(0.0, 1.0)
+                .powf(16.0 * (1.0 - self.fuzz))
+    }
+
+    fn casts_shadow(&self) -> bool {
+        true
     }
 }
 
@@ -140,6 +166,20 @@ impl Scatter for Dielectric {
         let scattered = Ray::new(hit.position, out_direction);
 
         Some((Color::one(), scattered))
+    }
+
+    fn shade(&self, from_view: &Ray, to_light: &Ray, hit: &HitRecord) -> Color {
+        let view_reflected = from_view.direction().normalized().reflect(hit.normal);
+        Color::one()
+            * view_reflected
+                .dot(to_light.direction())
+                .clamp(0.0, 1.0)
+                .powi(16)
+    }
+
+    fn casts_shadow(&self) -> bool {
+        // SE TODO: Need to make this conditional on stuff, factor in refraction, etc.
+        false
     }
 }
 

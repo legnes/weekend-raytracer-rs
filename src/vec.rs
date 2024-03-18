@@ -14,6 +14,41 @@ pub struct Vec3 {
 pub type Point3 = Vec3;
 pub type Color = Vec3;
 
+impl Color {
+    pub fn debug() -> Self {
+        Self::new(1.0, 0.0, 1.0)
+    }
+
+    pub fn tonemap(self, divisor: u64) -> (u8, u8, u8) {
+        // First divide by number of samples
+        let r = ((self[0] / (divisor as f64))
+            // Gamma correction
+            .powf(1.0 / 2.0)
+            // Clamp
+            .clamp(0.0, 0.999)
+            // Map to byte
+            * 256.0) as u8;
+
+        let g = ((self[1] / (divisor as f64))
+            .powf(1.0 / 2.0)
+            .clamp(0.0, 0.999)
+            * 256.0) as u8;
+
+        let b = ((self[2] / (divisor as f64))
+            .powf(1.0 / 2.0)
+            .clamp(0.0, 0.999)
+            * 256.0) as u8;
+
+        (r, g, b)
+    }
+
+    pub fn format(self, divisor: u64) -> String {
+        let (r, g, b) = self.tonemap(divisor);
+
+        format!("{} {} {}", r, g, b)
+    }
+}
+
 impl Vec3 {
     pub fn new(e0: f64, e1: f64, e2: f64) -> Self {
         Self { e: [e0, e1, e2] }
@@ -85,27 +120,18 @@ impl Vec3 {
         }
     }
 
-    pub fn format_color(self, divisor: u64) -> String {
-        // First divide by number of samples
-        let r = ((self[0] / (divisor as f64))
-            // Gamma correction
-            .powf(1.0 / 2.0)
-            // Clamp
-            .clamp(0.0, 0.999)
-            // Map to byte
-            * 256.0) as u64;
+    pub fn clamp(self, min: f64, max: f64) -> Self {
+        Self {
+            e: [
+                self[0].clamp(min, max),
+                self[1].clamp(min, max),
+                self[2].clamp(min, max),
+            ],
+        }
+    }
 
-        let g = ((self[1] / (divisor as f64))
-            .powf(1.0 / 2.0)
-            .clamp(0.0, 0.999)
-            * 256.0) as u64;
-
-        let b = ((self[2] / (divisor as f64))
-            .powf(1.0 / 2.0)
-            .clamp(0.0, 0.999)
-            * 256.0) as u64;
-
-        format!("{} {} {}", r, g, b)
+    pub fn is_nan(self) -> bool {
+        f64::is_nan(self.e[0]) || f64::is_nan(self.e[1]) || f64::is_nan(self.e[2])
     }
 
     pub fn from_spherical(r: f64, phi: f64, theta: f64) -> Self {
@@ -374,5 +400,17 @@ impl Neg for Vec3 {
 impl Display for Vec3 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "({} {} {})", self[0], self[1], self[2])
+    }
+}
+
+impl PartialEq for Vec3 {
+    fn eq(&self, other: &Self) -> bool {
+        self.e[0] == other.e[0] && self.e[1] == other.e[1] && self.e[2] == other.e[2]
+    }
+}
+
+impl PartialEq<f64> for Vec3 {
+    fn eq(&self, other: &f64) -> bool {
+        self.e[0] == *other && self.e[1] == *other && self.e[2] == *other
     }
 }

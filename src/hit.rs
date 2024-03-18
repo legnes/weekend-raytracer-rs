@@ -1,8 +1,9 @@
+use std::sync::Arc;
 use super::bvh::Bvh;
+use super::light::Light;
 use super::material::Scatter;
 use super::ray::Ray;
 use super::vec::{Point3, Vec3};
-use std::sync::Arc;
 
 pub struct HitRecord {
     pub t: f64,
@@ -43,12 +44,17 @@ pub type World = Vec<Box<dyn Primitive>>;
 pub struct Scene {
     primitives: World,
     bvh: Bvh,
+    lights: Vec<Box<dyn Light>>,
 }
 
 impl Scene {
-    pub fn new(primitives: World) -> Self {
+    pub fn new(primitives: World, lights: Vec<Box<dyn Light>>) -> Self {
         let bvh = Bvh::new(&primitives);
-        Self { primitives, bvh }
+        Self { primitives, bvh, lights }
+    }
+
+    pub fn lights(&self) -> &Vec<Box<dyn Light>> {
+        &self.lights
     }
 
     #[allow(dead_code)]

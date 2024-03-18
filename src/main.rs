@@ -11,6 +11,7 @@ static ALLOC: dhat::Alloc = dhat::Alloc;
 mod bvh;
 mod camera;
 mod hit;
+mod light;
 mod material;
 mod ray;
 mod sphere;
@@ -18,6 +19,7 @@ mod vec;
 
 use camera::Camera;
 use hit::{Hit, Scene, World};
+use light::DirectionalLight;
 #[allow(unused_imports)]
 use material::{Dielectric, Lambertian, Metal, Scatter};
 use rand::Rng;
@@ -31,8 +33,13 @@ use std::time::Instant;
 use vec::{Color, Point3, Vec3};
 
 // SE TODO: Next steps
+//  - Switch to HDR
+//  - Add analytic sky model
+//  - Implement a few BRDFs
+//  - Move back to hittable light sources
 //
-//  - Make bvh faster (keep following tutorial)
+//  - Volumes!
+//  - Subsurface scattering
 //  - Rainbows - Make dielectric scatter frequency-dependence and shoot 1 frequency per ray
 //  - HDR rendering
 //  - PBR materials
@@ -41,6 +48,8 @@ use vec::{Color, Point3, Vec3};
 //  - Wasm version
 //
 //  - Lights — You can do this explicitly, by sending shadow rays to lights, or it can be done implicitly by making some objects emit light, biasing scattered rays toward them, and then downweighting those rays to cancel out the bias. Both work. I am in the minority in favoring the latter approach.
+//      - For more on shadow rays: https://www.scratchapixel.com/lessons/3d-basic-rendering/introduction-to-shading/ligth-and-shadows.html
+//      - Let's try the other version, where we just make emissive hittables in the world. How do you weight samples towards the lights? And how do you calc/cancel that weight? One option is to pick a light with some prob and sample directly towards it? Essentially shadow ray...
 //  - Triangles — Most cool models are in triangle form. The model I/O is the worst and almost everybody tries to get somebody else’s code to do this.
 //  - Surface Textures — This lets you paste images on like wall paper. Pretty easy and a good thing to do.
 //  - Solid textures — Ken Perlin has his code online. Andrew Kensler has some very cool info at his blog.
@@ -53,6 +62,12 @@ use vec::{Color, Point3, Vec3};
 //      - no obvious leak, but spend all time in sphere intersection
 //  - Accelerate hittest - rtree or something?
 //      - added bvh, which sped things up by an factor of 7 for 500 objects and a factor of 18 for 1800 objects
+//  - Make bvh faster (keep following tutorial)
+//      - added surface area heuristic to bvh construction, seemed to slow traversal down a lot (possibly bug in sah impl?)
+//      - added sorted traversal (hit near child first), also seemed to slow things down
+//      - removed both...
+//  - Lighting
+//      - prototyped shadow ray approach for directional lights. looked good, but introduced entirely parallel shading model
 //
 
 fn ray_color(ray: &Ray, scene: &Scene, depth: u64) -> Color {
@@ -63,11 +78,27 @@ fn ray_color(ray: &Ray, scene: &Scene, depth: u64) -> Color {
 
     // t_min prevents hitting very near surfaces, aka shadow acne
     if let Some(hit) = scene.hit(ray, 0.001, f64::INFINITY) {
-        if let Some((attenuation, reflected)) = hit.material.scatter(ray, &hit) {
+        let ambient_light = if let Some((attenuation, reflected)) = hit.material.scatter(ray, &hit)
+        {
             attenuation * ray_color(&reflected, scene, depth - 1)
         } else {
             Color::zero()
+        };
+
+        let mut direct_light = Vec3::zero();
+        for light in scene.lights() {
+            let shadow_ray = light.get_shadow_ray(hit.position);
+            let is_lit = if let Some(shadow_hit) = scene.hit(&shadow_ray, 0.001, f64::INFINITY) {
+                !shadow_hit.material.casts_shadow()
+            } else {
+                true
+            };
+            if is_lit {
+                direct_light += hit.material.shade(ray, &shadow_ray, &hit) * light.color();
+            }
         }
+
+        ambient_light + direct_light
     } else {
         // Background color
         let unit_direction = ray.direction().normalized();
@@ -170,7 +201,15 @@ fn main() {
     const MAX_DEPTH: u64 = 10; // 50;
 
     // World
-    let scene = Scene::new(random_world(11));
+    let sun1 = Box::new(DirectionalLight::new(
+        Vec3::new(1.0, -1.0, 1.0),
+        Color::one(),
+    ));
+    let sun2 = Box::new(DirectionalLight::new(
+        Vec3::random_range(-1.0..0.5),
+        Color::random_range(0.25..1.0),
+    ));
+    let scene = Scene::new(random_world(11), vec![sun1, sun2]);
 
     // Camera
     let look_from = Point3::new(13.0, 2.0, 3.0);
@@ -233,7 +272,7 @@ fn main() {
             .collect();
 
         for pixel_color in scanline {
-            println!("{}", pixel_color.format_color(SAMPLES_PER_PIXEL));
+            println!("{}", pixel_color.format(SAMPLES_PER_PIXEL));
         }
     }
     eprintln!("\nDone in {} seconds!", start.elapsed().as_secs());
