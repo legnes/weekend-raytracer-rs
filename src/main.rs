@@ -33,13 +33,14 @@ use std::time::Instant;
 use vec::{Color, Point3, Vec3};
 
 // For now we are operating in spectral radiance
-const RADIANCE_SKY: f64 = 100.0;
-const RADIANCE_SUN: f64 = 1000.0;
+const RADIANCE_SKY: f64 = 500.0 / 3.0;
+const RADIANCE_SUN: f64 = 1000.0 / 3.0;
 
 // SE TODO: Next steps
+//  - Implement a few BRDFs?
+//  - Track more spectral bands, make brdf wavelength dependent?
+//  - Move back to hittable light sources?
 //  - Add analytic sky model
-//  - Implement a few BRDFs
-//  - Move back to hittable light sources
 //
 //  - Volumes!
 //  - Subsurface scattering
@@ -75,9 +76,10 @@ const RADIANCE_SUN: f64 = 1000.0;
 //  - Lighting
 //      - prototyped shadow ray approach for directional lights. looked good, but introduced entirely parallel shading model and struggled with dielectric shadows
 //      - converted to hdr, experimented with different tonemappers
+//      - Added IBL from EXR -- struggled reconciling with sun radiance units?
 //
 
-fn ray_color(ray: &Ray, scene: &Scene, depth: u64) -> Color {
+fn ray_color(ray: &Ray, scene: &Scene, depth: u64, skybox: Arc<Vec<Vec<[f32; 4]>>>) -> Color {
     if depth <= 0 {
         // Too many bounces! Assume all energy lost
         return Color::zero();
@@ -87,7 +89,7 @@ fn ray_color(ray: &Ray, scene: &Scene, depth: u64) -> Color {
     if let Some(hit) = scene.hit(ray, 0.001, f64::INFINITY) {
         let ambient_light = if let Some((attenuation, reflected)) = hit.material.scatter(ray, &hit)
         {
-            attenuation * ray_color(&reflected, scene, depth - 1)
+            attenuation * ray_color(&reflected, scene, depth - 1, skybox.clone())
         } else {
             Color::zero()
         };
@@ -109,11 +111,15 @@ fn ray_color(ray: &Ray, scene: &Scene, depth: u64) -> Color {
     } else {
         // Background color
         let unit_direction = ray.direction().normalized();
-        let t = (unit_direction.y() + 1.0) * 0.5;
-        // Radial gradient around the vertical
-        let from = RADIANCE_SKY * Color::new(1.0, 1.0, 1.0);
-        let to = RADIANCE_SKY * Color::new(0.5, 0.7, 1.0);
-        (1.0 - t) * from + t * to
+        let theta = unit_direction.y().acos();
+        let xz = (ray.direction() * Vec3::new(1.0, 0.0, 1.0)).normalized();
+        let phi = xz.z().signum() * xz.x().acos();
+        let u = (phi / (std::f64::consts::PI * 2.0)).clamp(-1.0, 1.0) - 1.0 * -0.5;
+        let v = (theta / (std::f64::consts::PI * 1.0)).clamp(0.0, 1.0);
+        let row = (v * (skybox.len() - 1) as f64).floor() as usize;
+        let col = (u * (skybox[0].len() - 1) as f64).floor() as usize;
+        let pixel = skybox[row][col];
+        RADIANCE_SKY * Color::new(pixel[0] as f64, pixel[1] as f64, pixel[2] as f64)
     }
 }
 
@@ -240,9 +246,27 @@ fn main() {
     // Scene
     let scene = Scene::new(random_world(11), random_lights());
 
+    // Skybox
+    let skybox = exr::prelude::read_first_rgba_layer_from_file(
+        "./assets/venice_sunset_4k.exr",
+        |resolution, _| {
+            let default_pixel = [0.0, 0.0, 0.0, 0.0];
+            let empty_line = vec![default_pixel; resolution.width()];
+            let empty_image = vec![empty_line; resolution.height()];
+            empty_image
+        },
+        // transfer the colors from the file to your image type,
+        // NOTE: it seems like openExr stores in linear space? But some parsers apply gamma correction...
+        |pixel_vector, position, (r, g, b, a): (f32, f32, f32, f32)| {
+            pixel_vector[position.y()][position.x()] = [r, g, b, a]
+        },
+    )
+    .expect("should get a skybox");
+    let skybox = Arc::new(skybox.layer_data.channel_data.pixels);
+
     // Camera
     let look_from = Point3::new(13.0, 2.0, 3.0);
-    let look_at = Point3::new(0.0, 0.0, 0.0);
+    let look_at = Point3::new(0.0, 1.0, 0.0);
     let world_up = Vec3::new(0.0, 1.0, 0.0);
     let focus_distance = 10.0;
     let fov_degrees = 20.0;
@@ -293,7 +317,7 @@ fn main() {
                     let v = (j as f64 + subpixel_v) / ((IMAGE_HEIGHT - 1) as f64);
 
                     let ray = camera.get_ray(u, v);
-                    pixel_color += ray_color(&ray, &scene, MAX_DEPTH)
+                    pixel_color += ray_color(&ray, &scene, MAX_DEPTH, skybox.clone())
                 }
 
                 pixel_color / (SAMPLES_PER_PIXEL as f64)
@@ -301,7 +325,10 @@ fn main() {
             .collect();
 
         for pixel_color in scanline {
-            println!("{}", pixel_color.expose(-8.5).tonemap_aces_approximate().format());
+            println!(
+                "{}",
+                pixel_color.expose(-8.0).tonemap_aces_approximate().format()
+            );
         }
     }
     eprintln!("\nDone in {} seconds!", start.elapsed().as_secs());
